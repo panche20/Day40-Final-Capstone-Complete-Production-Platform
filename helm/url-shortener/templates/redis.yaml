@@ -1,0 +1,65 @@
+---
+# Redis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "url-shortener.redisName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "url-shortener.labels" . | nindent 4 }}
+    component: redis
+spec:
+  # Redis should have exactly 1 replica.
+  # Why? Redis without clustering can't handle multiple writers safely.
+  # For HA Redis: use Redis Sentinel or Redis Cluster (separate setup).
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "url-shortener.selectorLabels" . | nindent 6 }}
+      component: redis
+  template:
+    metadata:
+      labels:
+        {{- include "url-shortener.selectorLabels" . | nindent 8 }}
+        component: redis
+    spec:
+      containers:
+      - name: redis
+        image: {{ .Values.redis.image }}
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6379
+          name: redis
+        resources:
+          {{- toYaml .Values.redis.resources | nindent 10 }}
+        livenessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 5
+          periodSeconds: 3
+          failureThreshold: 3
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "url-shortener.redisName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "url-shortener.labels" . | nindent 4 }}
+    component: redis
+spec:
+  selector:
+    {{- include "url-shortener.selectorLabels" . | nindent 4 }}
+    component: redis
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+  type: ClusterIP

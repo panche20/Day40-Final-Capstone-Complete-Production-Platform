@@ -1,0 +1,40 @@
+---
+# ClusterIP Service — internal cluster routing
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "url-shortener.appName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "url-shortener.labels" . | nindent 4 }}
+    component: app
+spec:
+  selector:
+    {{- include "url-shortener.selectorLabels" . | nindent 4 }}
+    component: app
+  ports:
+  - name: http
+    port: 80
+    targetPort: {{ .Values.app.port }}
+  type: ClusterIP
+---
+# NodePort Service — external access for testing
+# In production: use Ingress or LoadBalancer
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "url-shortener.appName" . }}-external
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "url-shortener.labels" . | nindent 4 }}
+    component: app
+spec:
+  selector:
+    {{- include "url-shortener.selectorLabels" . | nindent 4 }}
+    component: app
+  ports:
+  - name: http
+    port: 80
+    targetPort: {{ .Values.app.port }}
+    nodePort: 30080
+  type: NodePort

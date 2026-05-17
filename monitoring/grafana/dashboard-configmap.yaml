@@ -1,0 +1,123 @@
+# Grafana sidecar watches for ConfigMaps with label grafana_dashboard: "1"
+# and automatically imports them.
+# Why this approach? Dashboards stored in Grafana DB are lost on pod restart.
+# ConfigMaps in Kubernetes (backed by etcd) persist.
+# Dashboard as code = version controlled = reproducible.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: url-shortener-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  url-shortener.json: |
+    {
+      "dashboard": {
+        "title": "URL Shortener — Production Dashboard",
+        "uid": "url-shortener-prod",
+        "tags": ["url-shortener", "production"],
+        "refresh": "30s",
+        "time": {"from": "now-1h", "to": "now"},
+        "panels": [
+          {
+            "id": 1,
+            "title": "Request Rate (Golden Signal: Traffic)",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+            "targets": [{
+              "expr": "sum(rate(http_requests_total[5m])) by (endpoint)",
+              "legendFormat": "{{endpoint}}"
+            }],
+            "fieldConfig": {"defaults": {"unit": "reqps"}}
+          },
+          {
+            "id": 2,
+            "title": "Error Rate % (Golden Signal: Errors)",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+            "targets": [{
+              "expr": "100 * sum(rate(http_requests_total{status_code=~'5..'}[5m])) / sum(rate(http_requests_total[5m]))",
+              "legendFormat": "Error Rate %"
+            }],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "yellow", "value": 1},
+                    {"color": "red", "value": 5}
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": 3,
+            "title": "Latency Percentiles (Golden Signal: Latency)",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+            "targets": [
+              {"expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50"},
+              {"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95"},
+              {"expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99"}
+            ],
+            "fieldConfig": {"defaults": {"unit": "s"}}
+          },
+          {
+            "id": 4,
+            "title": "Memory Usage (Golden Signal: Saturation)",
+            "type": "timeseries",
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+            "targets": [{
+              "expr": "container_memory_working_set_bytes{namespace='url-shortener', container='app'}",
+              "legendFormat": "{{pod}}"
+            }],
+            "fieldConfig": {"defaults": {"unit": "bytes"}}
+          },
+          {
+            "id": 5,
+            "title": "URLs Shortened (Business KPI)",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 0, "y": 16},
+            "targets": [{"expr": "sum(urls_shortened_total)", "legendFormat": "Total"}]
+          },
+          {
+            "id": 6,
+            "title": "Redis Status",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 6, "y": 16},
+            "targets": [{"expr": "redis_connected", "legendFormat": "Connected"}],
+            "fieldConfig": {
+              "defaults": {
+                "mappings": [
+                  {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}}},
+                  {"type": "value", "options": {"1": {"text": "UP", "color": "green"}}}
+                ]
+              }
+            }
+          },
+          {
+            "id": 7,
+            "title": "Active Requests",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 12, "y": 16},
+            "targets": [{"expr": "sum(http_active_requests)", "legendFormat": "Active"}]
+          },
+          {
+            "id": 8,
+            "title": "Pod Count",
+            "type": "stat",
+            "gridPos": {"h": 4, "w": 6, "x": 18, "y": 16},
+            "targets": [{
+              "expr": "count(kube_pod_info{namespace='url-shortener'})",
+              "legendFormat": "Pods"
+            }]
+          }
+        ],
+        "schemaVersion": 38,
+        "version": 1
+      },
+      "overwrite": true
+    }

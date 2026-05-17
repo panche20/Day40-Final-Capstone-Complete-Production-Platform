@@ -1,0 +1,16 @@
+# Prevents unnecessary files from entering build context
+# Smaller context = faster builds
+.git
+.github
+helm/
+monitoring/
+scripts/
+*.md
+.env
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.pytest_cache/
+tests/
+Dockerfile
+.dockerignore

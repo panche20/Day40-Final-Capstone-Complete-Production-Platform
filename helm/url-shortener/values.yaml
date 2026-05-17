@@ -1,0 +1,59 @@
+# ── Application ────────────────────────────────────────────────
+app:
+  image: url-shortener
+  tag: latest
+  pullPolicy: Never         # use local image (minikube)
+  replicas: 2
+  color: blue               # blue-green deployment color
+  version: "1.0.0"
+  port: 8000
+
+  # Resource requests and limits.
+  # Why both? Requests: guaranteed allocation (scheduling).
+  # Limits: maximum allowed (prevents noisy neighbor).
+  # Without limits: one pod can consume all node memory.
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "500m"
+
+  # Autoscaling — scale based on CPU usage
+  # HPA watches CPU and adjusts replica count automatically
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  # Environment configuration
+  env:
+    LOG_LEVEL: "INFO"
+
+# ── Redis ──────────────────────────────────────────────────────
+redis:
+  image: redis:7-alpine
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "250m"
+
+# ── Ingress ────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: url-shortener.local
+
+# ── Monitoring ─────────────────────────────────────────────────
+monitoring:
+  enabled: true
+  scrapeInterval: "15s"
+
+# ── Network Policy ─────────────────────────────────────────────
+networkPolicy:
+  enabled: true

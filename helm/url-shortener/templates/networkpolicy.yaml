@@ -1,0 +1,63 @@
+{{- if .Values.networkPolicy.enabled }}
+---
+# Redis NetworkPolicy: only app pods can reach Redis
+# Zero-trust networking: deny by default, allow explicitly
+# Interview: "How do you prevent unauthorized access to Redis?"
+# Answer: NetworkPolicy that only allows traffic from app pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-redis-policy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "url-shortener.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "url-shortener.selectorLabels" . | nindent 6 }}
+      component: redis
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          {{- include "url-shortener.selectorLabels" . | nindent 10 }}
+          component: app
+    ports:
+    - protocol: TCP
+      port: 6379
+---
+# App NetworkPolicy: restrict incoming traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-app-policy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "url-shortener.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "url-shortener.selectorLabels" . | nindent 6 }}
+      component: app
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow from ingress controller
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8000
+  # Allow from within the same namespace (for health checks)
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Release.Namespace }}
+    ports:
+    - protocol: TCP
+      port: 8000
+{{- end }}

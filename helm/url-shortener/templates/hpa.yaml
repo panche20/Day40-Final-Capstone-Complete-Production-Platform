@@ -1,0 +1,46 @@
+{{- if .Values.app.autoscaling.enabled }}
+# HPA automatically scales pod count based on metrics.
+# When CPU usage > 70%: add more pods
+# When CPU usage < 70% and we have excess pods: remove them
+#
+# Interview: "How does HPA work?"
+# HPA controller queries metrics-server every 15 seconds.
+# It calculates: desiredReplicas = ceil(current * (current/target))
+# Example: 2 pods at 140% CPU target → 4 pods needed
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "url-shortener.appName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "url-shortener.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "url-shortener.appName" . }}
+  minReplicas: {{ .Values.app.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.app.autoscaling.maxReplicas }}
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.app.autoscaling.targetCPUUtilizationPercentage }}
+  behavior:
+    # Scale up quickly — don't let users suffer during traffic spikes
+    scaleUp:
+      stabilizationWindowSeconds: 60   # wait 60s before scale-up decision
+      policies:
+      - type: Percent
+        value: 100                      # can double replicas at once
+        periodSeconds: 60
+    # Scale down slowly — avoid thrashing (add/remove repeatedly)
+    scaleDown:
+      stabilizationWindowSeconds: 300  # wait 5 minutes before scale-down
+      policies:
+      - type: Pods
+        value: 1                        # remove at most 1 pod per minute
+        periodSeconds: 60
+{{- end }}

@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "url-shortener.appName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "url-shortener.labels" . | nindent 4 }}
+    component: app
+    color: {{ .Values.app.color }}
+  annotations:
+    # Deployment revision tracking
+    kubernetes.io/change-cause: "Version {{ .Values.app.version }}"
+spec:
+  replicas: {{ .Values.app.replicas }}
+  selector:
+    matchLabels:
+      {{- include "url-shortener.selectorLabels" . | nindent 6 }}
+      component: app
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # maxUnavailable: 0 = never go below desired replica count
+      # During update: always have full capacity serving traffic
+      maxUnavailable: 0
+      # maxSurge: 1 = create one extra pod during update
+      # New pod must pass readiness before old one is removed
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "url-shortener.selectorLabels" . | nindent 8 }}
+        component: app
+        color: {{ .Values.app.color }}
+        version: {{ .Values.app.version | quote }}
+      annotations:
+        # CRITICAL: These checksums force pod restart when
+        # ConfigMap or Secret changes.
+        # Without them: pods keep running with stale config.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+
+        # Prometheus auto-discovery annotations
+        # Prometheus operator watches for these on pods
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: {{ .Values.app.port | quote }}
+    spec:
+      # terminationGracePeriodSeconds gives the pod time to:
+      # 1. Finish in-flight requests
+      # 2. Close connections cleanly
+      # 3. Flush any buffers
+      # Must be > your longest expected request duration
+      terminationGracePeriodSeconds: 30
+
+      containers:
+      - name: app
+        image: "{{ .Values.app.image }}:{{ .Values.app.tag }}"
+        imagePullPolicy: {{ .Values.app.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.app.port }}
+          name: http
+          protocol: TCP
+        envFrom:
+        # Inject ALL ConfigMap keys as environment variables
+        # Cleaner than listing each one individually
+        - configMapRef:
+            name: {{ .Release.Name }}-config
+        env:
+        # Kubernetes Downward API — inject pod metadata as env vars
+        # Your app can log which pod/node it's on without any SDK
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        # Deployment-specific metadata
+        - name: APP_VERSION
+          value: {{ .Values.app.version | quote }}
+        - name: APP_COLOR
+          value: {{ .Values.app.color | quote }}
+        resources:
+          {{- toYaml .Values.app.resources | nindent 10 }}
+        # Liveness probe: is the process alive?
+        # Failure → Kubernetes RESTARTS the pod
+        # Use for: deadlock detection, crashed processes
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.app.port }}
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 5
+        # Readiness probe: ready to receive traffic?
+        # Failure → Kubernetes REMOVES from Service (no restart)
+        # Use for: startup delay, temporary overload
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: {{ .Values.app.port }}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 3
+          timeoutSeconds: 3
+        # Lifecycle hook: runs before SIGTERM
+        # Gives the load balancer time to stop sending traffic
+        # before the pod starts refusing connections
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]
